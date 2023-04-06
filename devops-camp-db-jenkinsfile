@@ -1,1 +1,62 @@
-# devops-camp-pipeline
+pipeline {
+    agent {
+        label 'jenkins-agent'
+    }
+    //TODO: add environment variables
+
+    environment {
+        PIPELINE_HASH = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        HARBOR_REGISTRY = 'harbor.dev.afsmtddso.com'
+        HARBOR_PROJECT = 'rhan-harbor-project'
+        DB_IMAGE_NAME = 'db'
+    }
+
+    stages {
+        //TODO: add stages to pipeline
+        tage('Application repository') {
+            steps {
+                echo "Cloning application repository"
+                sh 'git clone https://github.com/rhhan/afs-labs-student.git'
+                dir('afs-labs-student') {
+                    script {
+                        env.COMMIT_HASH = sh(script: 'git log --format=format:%h -1 --follow database/database.sql', returnStdout: true).trim()
+                    }
+                }
+                withCredentials([usernamePassword(credentialsId: 'rhan-harbor-auth', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    script {
+                        env.BUILD_DB = sh(script: 'python check_harbor_db.py -h $COMMIT_HASH -i $DB_IMAGE_NAME -r $HARBOR_REGISTRY -p $HARBOR_PROJECT -c ${USERNAME}:${PASSWORD}', returnStdout: true).trim()
+                    }
+                }
+            }
+        }
+        stage('DB changes: true') {
+           when {
+              environment name: 'BUILD_DB', value: 'true'
+           }
+           stages {
+              stage('Database docker build') {
+                  steps {
+                      echo "Building database image"
+                      //TODO: build docker image & push to Harbor
+                  }
+                  post {
+                      //TODO: clean local docker images
+                  }
+              }
+              stage('Deploy') {
+                  steps {
+                      echo "Deployment stage"
+                      //TODO: deploy database
+                  }
+              }
+           }
+        }
+    }
+    
+    post {
+        cleanup {
+            echo "Clean workspace"
+            sh 'rm -rf .git ./*'
+        }
+    }
+}
