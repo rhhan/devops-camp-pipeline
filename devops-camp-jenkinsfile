@@ -22,7 +22,34 @@ pipeline {
                         env.COMMIT_HASH = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                     }
                 }
+                withCredentials([usernamePassword(credentialsId: 'rhan-harbor-auth', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    script {
+                        env.BUILD_DB = sh(script: 'python check_harbor_db.py -h $COMMIT_HASH -i $DB_IMAGE_NAME -r $HARBOR_REGISTRY -p $HARBOR_PROJECT -c ${USERNAME}:${PASSWORD}', returnStdout: true).trim()
+                    }
+                }
             }
+        }
+        stage('DB changes: true') {
+           when {
+              environment name: 'BUILD_DB', value: 'true'
+           }
+           stages {
+              stage('Database docker build') {
+                  steps {
+                      echo "Building database image"
+                      //TODO: build docker image & push to Harbor
+                  }
+                  post {
+                      //TODO: clean local docker images
+                  }
+              }
+              stage('Deploy') {
+                  steps {
+                      echo "Deployment stage"
+                      //TODO: deploy database
+                  }
+              }
+           }
         }
         stage('Application docker build') {
             steps {
@@ -66,6 +93,15 @@ pipeline {
                         }
                     }
                 }
+                withCredentials([usernameColonPassword(credentialsId: 'rhan-harbor-auth', variable: 'HARBOR-AUTH')]) {
+                          script {
+                              sh 'docker build -t $DB_IMAGE_NAME-$COMMIT_HASH -f ./db/Dockerfile ./afs-labs-student'
+                              docker.withRegistry('https://$HARBOR_REGISTRY', 'rhan-harbor-auth') {
+                                  sh 'docker tag $DB_IMAGE_NAME-$COMMIT_HASH $HARBOR_REGISTRY/$HARBOR_PROJECT/$DB_IMAGE_NAME:$COMMIT_HASH-$PIPELINE_HASH'
+                                  sh 'docker push $HARBOR_REGISTRY/$HARBOR_PROJECT/$DB_IMAGE_NAME:$COMMIT_HASH-$PIPELINE_HASH'
+                              }
+                          }
+                      }
             }
             post {
                 always {
@@ -79,6 +115,17 @@ pipeline {
                         }
                     }
                 }
+                always {
+                          echo "Clean local $DB_IMAGE_NAME image"
+                          script {
+                              try {
+                                  sh 'docker rmi $DB_IMAGE_NAME-$COMMIT_HASH:latest'
+                                  sh 'docker rmi $HARBOR_REGISTRY/$HARBOR_PROJECT/$DB_IMAGE_NAME:$COMMIT_HASH-$PIPELINE_HASH'
+                              } catch (err) {
+                                  echo err.getMessage()
+                              }
+                          }
+                      }
             }
             //TODO("Lab 4 - Artifact Management"): clean local docker db image
         }
@@ -88,6 +135,7 @@ pipeline {
                 echo "Deployment stage"
                 //TODO("Lab 5 - Deploy to EKS"): deploy docker images
                 sh 'kubectl -n rhan set image deployment/app-deployment app-deployment=$HARBOR_REGISTRY/$HARBOR_PROJECT/$APP_IMAGE_NAME:$COMMIT_HASH-$PIPELINE_HASH'
+                sh 'kubectl -n rhan set image deployment/db-deployment db-deployment=$HARBOR_REGISTRY/$HARBOR_PROJECT/$DB_IMAGE_NAME:$COMMIT_HASH-$PIPELINE_HASH'
                 sh 'kubectl -n rhan set image deployment/db-deployment db-deployment=$HARBOR_REGISTRY/$HARBOR_PROJECT/$DB_IMAGE_NAME:$COMMIT_HASH-$PIPELINE_HASH'
             }
         }
