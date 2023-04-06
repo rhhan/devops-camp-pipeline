@@ -13,7 +13,7 @@ pipeline {
 
     stages {
         //TODO: add stages to pipeline
-        tage('Application repository') {
+        stage('Application repository') {
             steps {
                 echo "Cloning application repository"
                 sh 'git clone https://github.com/rhhan/afs-labs-student.git'
